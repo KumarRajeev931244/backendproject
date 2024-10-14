@@ -7,3 +7,9 @@
 ```
     npm install -D nodemon 
 ```
+
+# installing the prettier
+
+```
+     npm i -D  prettier
+```
