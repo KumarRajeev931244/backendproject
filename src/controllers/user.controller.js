@@ -3,6 +3,7 @@ import { ApiError } from '../utils/ApiError.js'
 import { User } from '../models/user.model.js'
 import {uploadONCloudinary} from '../utils/cloudinary.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
+import jwt from 'jsonwebtoken'
 
 const generateAccessAndRefreshTokens = async(userId) => {
     try {
@@ -13,7 +14,7 @@ const generateAccessAndRefreshTokens = async(userId) => {
 
         // referesh token database mae save karke rakhte hai jise se hamy user se baar baar na puchna padega
 
-        user.refreshtoken = refreshToken
+        user.refreshToken = refreshToken
         await user.save({ validateBeforeSave: false })
         
         return {accessToken, refreshToken}
@@ -53,19 +54,17 @@ const registerUser = asyncHandler( async (req, res) => {
     }
     console.log(req.files)
     const avatarLocalpath= req.files?.avatar[0]?.path
-    if(!coverImage[0]){
-        console.log("does not exit")
-    }
-    const coverImageLocalPath = req.files?.coverImage?.path
+
+    // const coverImageLocalPath = req.files?.coverImage?.path
     // const coverImageLocalPath = req.files?.coverImage?.path
   
     
     
     
-    // let coverImageLocalPath;
-    // if(req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0){
-    //     coverImageLocalPath = req.files.coverImage?.path
-    // }
+    let coverImageLocalPath;
+    if(req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0){
+        coverImageLocalPath = req.files.coverImage[0]?.path
+    }
    
     if(!avatarLocalpath){
         throw new ApiError(400, "avatar file is required")
@@ -135,7 +134,7 @@ const loginUser = asyncHandler(async (req,res) =>{
     }
     const {accessToken, refreshToken} = await generateAccessAndRefreshTokens(user._id)
 
-    const loggedINUser  = await User.findById(user._id).select("-password -refreshtoken")
+    const loggedINUser  = await User.findById(user._id).select("-password -refreshToken")
 
     const options = {
         // this enable cookie do not modify by front end
@@ -145,8 +144,8 @@ const loginUser = asyncHandler(async (req,res) =>{
 
     return res
     .status(200)
-    .cookie("accessToken",accessToken,options)
-    .cookie("refreshToken", refreshToken,options)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
     .json(
 
         /**
@@ -182,7 +181,7 @@ const logoutUser = asyncHandler(async(req, res) => {
         req.user._id,
         {
             $set:{
-                refreshtoken: undefined
+                refreshToken: undefined
             }
 
         },
@@ -203,10 +202,58 @@ const logoutUser = asyncHandler(async(req, res) => {
 
 })
 
+
+const refreshAccessToken = asyncHandler(async(req, res) => {
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+    if(incomingRefreshToken){
+        throw new ApiError(401, "unauthorised request")
+    }
+
+    try {
+        const decodedToken  = jwt.verify(
+            incomingRefreshToken,
+            process.env.REFRESH_TOKEN_SECRET
+    
+        )
+        const user = User.findById(decodedToken?._id)
+        if(!user){
+            throw new ApiError(401, "invalid refresh token")
+        }
+    
+        if(incomingRefreshToken !== user?.refreshToken){
+            throw new ApiError(401, "refresh token is expired or used")
+    
+        }
+    
+        const options = {
+            httpOnly: true,
+            secure: true
+        }
+        const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id)
+        
+        return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", newRefreshToken, options)
+        .json(
+            new ApiResponse(
+                200, 
+                {accessToken, refreshToken: newRefreshToken},
+                "Access token refresh"
+            )
+        )
+    
+    } catch (error) {
+        throw new ApiError(401, error?.message || " invalid refresh token")
+        
+    }
+})
 export  { 
     registerUser,
     loginUser,
-    logoutUser
+    logoutUser,
+    refreshAccessToken
 
 }
 
